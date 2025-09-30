@@ -23,10 +23,12 @@ export function InventoryProvider({ children }) {
     /** Cantidad de pacas en un corral */
     const getBales = (penNumber) => penBales[penNumber] ?? 0;
 
-    /** Cantidad de Straw Bale disponible en inventario */
+    /** Cantidad de Straw Bale disponible en inventario (suma todas las filas) */
     const getStrawQty = () => {
-        const straw = inventory.find((i) => i.item === "Straw Bale");
-        return straw ? straw.qty : 0;
+        const N = (s) => String(s).trim().toLowerCase();
+        return inventory
+            .filter((i) => N(i.item) === "straw bale")
+            .reduce((acc, i) => acc + Number(i.qty || 0), 0);
     };
 
     /** Obtener ambas cosas juntas (para pintar en la tarjeta) */
@@ -44,8 +46,11 @@ export function InventoryProvider({ children }) {
         delta = Number(delta);
         if (!Number.isFinite(delta) || delta === 0) return;
 
-        const strawIdx = inventory.findIndex((i) => i.item === "Straw Bale");
-        const strawQty = strawIdx >= 0 ? inventory[strawIdx].qty : 0;
+        const strawIdx = inventory.findIndex(
+            (i) => String(i.item).trim().toLowerCase() === "straw bale"
+        );
+        const strawQty = getStrawQty(); // usa el total real (suma todas las filas)
+
         const currentPen = getBales(penNumber);
 
         if (delta > 0) {
@@ -98,7 +103,7 @@ export function InventoryProvider({ children }) {
         const amount = getBales(penNumber);
         if (amount <= 0) return;
 
-        const strawIdx = inventory.findIndex((i) => i.item === "Straw Bale");
+        const strawIdx = inventory.findIndex((i) => String(i.item).trim().toLowerCase() === "straw bale");
 
         setPenBales((prev) => ({ ...prev, [penNumber]: 0 }));
         setInventory((prev) =>
@@ -109,21 +114,58 @@ export function InventoryProvider({ children }) {
     }
 
     // 🔹 Nuevo: agregar ítems al inventario desde /inventory
+    // 🔹 Nuevo: agregar ítems al inventario desde /inventory
     function addInventoryItem({ item, qty, location }) {
+        const N = (s) => String(s).trim().toLowerCase();
+        const canonicalItem = String(item).trim();
+        const amount = Number(qty) || 0;
+        const loc = String(location ?? "").trim();
+
         setInventory((prev) => {
+            // Si es "Straw Bale", intenta sumar a una fila existente (case-insensitive)
+            if (N(canonicalItem) === "straw bale") {
+                const idx = prev.findIndex((x) => N(x.item) === "straw bale");
+                if (idx >= 0) {
+                    // suma a la fila existente
+                    const next = [...prev];
+                    next[idx] = {
+                        ...next[idx],
+                        qty: Number(next[idx].qty || 0) + amount,
+                        // si quieres, puedes actualizar location; si no, deja la original:
+                        location: next[idx].location || loc,
+                        updated: todayStr(),
+                    };
+                    return next;
+                }
+                // si no existe, crea la fila canónica
+                const nextId = prev.length ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+                return [
+                    {
+                        id: nextId,
+                        item: "Straw Bale",     // ← nombre canónico
+                        qty: amount,
+                        location: loc,
+                        updated: todayStr(),
+                    },
+                    ...prev,
+                ];
+            }
+
+            // Para otros ítems, deja tu comportamiento actual (crea fila nueva)
             const nextId = prev.length ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
             return [
                 {
                     id: nextId,
-                    item: String(item).trim(),
-                    qty: Number(qty) || 0,
-                    location: String(location ?? "").trim(),
+                    item: canonicalItem,
+                    qty: amount,
+                    location: loc,
                     updated: todayStr(),
                 },
                 ...prev,
             ];
         });
     }
+
 
     return (
         <InventoryContext.Provider
